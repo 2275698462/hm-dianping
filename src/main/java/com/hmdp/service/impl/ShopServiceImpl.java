@@ -147,7 +147,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //先强转为JSONObject
         JSONObject data = (JSONObject) redisData.getData();
         //再转为对象
-        Shop shop = JSONUtil.toBean(data, Shop.class);
+        Shop shop = JSONUtil.toBean(data, Shop.class);  //TODO 把以上封装为一个通用方法，在方便做二次检查，也就是下面的TODO
 
         //判断逻辑时间是否过期
         LocalDateTime expireTime = redisData.getExpireTime();
