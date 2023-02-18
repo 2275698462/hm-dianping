@@ -1,6 +1,6 @@
 package com.hmdp.utils;
 
-import cn.hutool.core.bean.BeanUtil;
+
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -92,9 +92,11 @@ public class CacheClient {
         R r = dbFunction.apply(id);
 
         //判断数据库是否存在
-        if (r == null)
+        if (r == null) {
             //不存在，返回空对象
             stringRedisTemplate.opsForValue().set(key, "", 2L, TimeUnit.MINUTES);
+            return null;
+        }
 
         //存在，写入redis
         this.set(key, r, time, unit);
@@ -103,8 +105,22 @@ public class CacheClient {
 
     //封装查询逻辑过期的缓存对象，方便二次检查
     private <R, T> R selectLogicCache(String keyPreifx, T id, Class<R> type) {
-        return null;
-        //TODO
+        String key = keyPreifx + id;
+        //从redis查询
+        String json = stringRedisTemplate.opsForValue().get(key);
+
+        //判断是否为 ""
+        if (StrUtil.isBlank(json))
+            //为 ""，直接返回
+            return null;
+
+        //缓存有数据，要把json反序列化为对象
+        RedisData redisData = JSONUtil.toBean(json, RedisData.class);
+        JSONObject data = (JSONObject) redisData.getData();
+        R r = JSONUtil.toBean(data, type);
+
+        return r;
+
     }
 
     /**
@@ -123,19 +139,17 @@ public class CacheClient {
     public <R, T> R queryWithLogicExpire(
             String keyPreifx, T id, Class<R> type, Function<T, R> dbFunction, Long time, TimeUnit unit
     ) {
+        //从redis查询是否有数据
+        R r = selectLogicCache(keyPreifx, id, type);
+        if (r == null)
+            return null;
+
         String key = keyPreifx + id;
         //从redis查询
         String json = stringRedisTemplate.opsForValue().get(key);
 
-        //判断是否为 ""
-        if (StrUtil.isBlank(json))
-            //为 ""，直接返回
-            return null;
-
-        //缓存有数据，要把json反序列化为对象
         RedisData redisData = JSONUtil.toBean(json, RedisData.class);
         JSONObject data = (JSONObject) redisData.getData();
-        R r = JSONUtil.toBean(data, type);
 
         LocalDateTime expireTime = redisData.getExpireTime();
         //判断是否过期
@@ -153,10 +167,12 @@ public class CacheClient {
             return r;
         }
 
-        //获取成功，再次判断缓存是否过期，TODO
+        //获取成功，再次判断缓存是否过期，
         if (expireTime.isAfter(LocalDateTime.now()))
-            //未过期，返回
-            return r;
+            //再次判断是否过期
+            if (expireTime.isAfter(LocalDateTime.now()))
+                //未过期，返回
+                return r;
 
         //确认拿到的是过期的数据，开启独立线程
         pool.submit(() -> {

@@ -9,6 +9,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisData;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -35,17 +36,27 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private CacheClient cacheClient;
 
     @Override
     public Result queryById(Long id) {
         //解决缓存穿透--缓存空对象
         //Shop shop = queryWithPassThrough(id);
+//        Shop shop = cacheClient.
+//                queryWithPenetrate("cache:shop:", id, Shop.class, this::getById, 2L, TimeUnit.MINUTES);
 
         //互斥锁解决缓存击穿
         //Shop shop = queryWithMutex(id);
 
         //逻辑过期解决缓存击穿
-        Shop shop = queryWithLogicExpire(id);
+        //Shop shop = queryWithLogicExpire(id);
+        Shop shop = cacheClient.
+                queryWithLogicExpire("cache:shop:", id, Shop.class, this::getById, 20L, TimeUnit.SECONDS);
+
+        if (shop == null) {
+            return Result.fail("店铺不存在的呢");
+        }
         return Result.ok(shop);
     }
 
@@ -147,7 +158,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //先强转为JSONObject
         JSONObject data = (JSONObject) redisData.getData();
         //再转为对象
-        Shop shop = JSONUtil.toBean(data, Shop.class);  //TODO 把以上封装为一个通用方法，在方便做二次检查，也就是下面的TODO
+        Shop shop = JSONUtil.toBean(data, Shop.class);
 
         //判断逻辑时间是否过期
         LocalDateTime expireTime = redisData.getExpireTime();
@@ -165,7 +176,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return shop;
         }
 
-        //获取锁成功，再次检查缓存是否更新 TODO 这里检查的有问题，要从redis中重新获取数据，而不是使用旧数据，先这样把，有时间再来改
+        //获取锁成功，再次检查缓存是否更新
         if (expireTime.isAfter(LocalDateTime.now())) {
             //未过期，释放锁并返回店铺信息
             unLock(lockKey);
