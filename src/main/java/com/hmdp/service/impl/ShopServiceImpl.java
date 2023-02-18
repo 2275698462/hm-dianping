@@ -111,7 +111,6 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 stringRedisTemplate.opsForValue().set("cache:shop:" + id, "", 2, TimeUnit.MINUTES);
                 return null;
             }
-
             stringRedisTemplate.opsForValue().set("cache:shop:" + id, JSONUtil.toJsonStr(shop), 30, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
