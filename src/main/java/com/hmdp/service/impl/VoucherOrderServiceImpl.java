@@ -8,7 +8,9 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
@@ -49,11 +51,30 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             //库存不足
             return Result.fail("库存不足");
 
-        //扣减库存
+        Long userId = UserHolder.getUser().getId();
+        synchronized (userId.toString().intern()) {
+            //获取当前对象(this)的代理对象
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId);
+        }
+    }
+
+    @Transactional
+    public Result createVoucherOrder(Long voucherId) {
+        //5.实现一人一单
+        //5.1获取用户id
+        Long userId = UserHolder.getUser().getId();
+
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        //5.2判断是否已经存在
+        if (count == 1)
+            //已经购买过
+            return Result.fail("只能购买一次");
+
+        //扣减库存，乐观锁防止库存超卖
         boolean success = seckillVoucherService.update()
-                .setSql("stock = stock - 1")
-                .eq("voucher_id", voucherId)
-                .gt("stock", 0).update();
+                .setSql("stock = stock - 1").
+                eq("voucher_id", voucherId).gt("stock", 0).update();
         if (!success)
             //扣减失败
             return Result.fail("库存不足");
@@ -62,10 +83,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         VoucherOrder voucherOrder = new VoucherOrder();
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
-        voucherOrder.setUserId(UserHolder.getUser().getId());
+        voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
         this.save(voucherOrder);
 
         return Result.ok(orderId);
     }
+
 }
